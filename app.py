@@ -3,9 +3,11 @@ import requests
 import pandas as pd
 import plotly.express as px
 
-# ----------- CONFIGURATION -------------
-API_KEY = "your_api_key_here"  # 🔁 Replace with your actual OpenWeatherMap API key
-DEFAULT_CITIES = {
+# ------------------- SETUP -------------------
+API_KEY = "your_api_key_here"  # 🔁 Replace this with your actual API key
+
+# Predefined cities and their coordinates
+CITIES = {
     "Delhi": {"lat": 28.6139, "lon": 77.2090},
     "Mumbai": {"lat": 19.0760, "lon": 72.8777},
     "Bengaluru": {"lat": 12.9716, "lon": 77.5946},
@@ -14,6 +16,7 @@ DEFAULT_CITIES = {
     "Tokyo": {"lat": 35.6762, "lon": 139.6503}
 }
 
+# AQI Categories (OpenWeatherMap scale)
 AQI_LABELS = {
     1: ("Good", "🟢"),
     2: ("Fair", "🟡"),
@@ -22,58 +25,78 @@ AQI_LABELS = {
     5: ("Very Poor", "🟣")
 }
 
-# ----------- FUNCTION TO FETCH AQI -------------
+# ------------------- FUNCTIONS -------------------
+
 def get_aqi_data(lat, lon):
-    url = f"http://api.openweathermap.org/data/2.5/air_pollution?lat={lat}&lon={lon}&appid={API_KEY}"
-    response = requests.get(url)
-    data = response.json()
+    """Fetch air quality data for given coordinates from OpenWeatherMap API."""
+    url = f"http://api.openweathermap.org/data/2.5/air_pollution"
+    params = {
+        "lat": lat,
+        "lon": lon,
+        "appid": API_KEY
+    }
 
-    if "list" not in data or len(data["list"]) == 0:
-        st.error("⚠️ No air quality data available. Check API key or coordinates.")
-        st.stop()
+    try:
+        response = requests.get(url, params=params)
+        data = response.json()
 
-    return data["list"][0]
+        if "list" not in data or len(data["list"]) == 0:
+            return None, "No air quality data found for this location."
+        return data["list"][0], None
+    except Exception as e:
+        return None, f"API request failed: {e}"
 
-# ----------- STREAMLIT APP -------------
-st.set_page_config(page_title="Air Quality Dashboard", layout="centered")
+# ------------------- STREAMLIT UI -------------------
+
+st.set_page_config(page_title="AQI Dashboard", layout="centered")
 st.title("🌫️ Real-Time Air Quality Index (AQI) Dashboard")
 
-city = st.selectbox("Choose a city", list(DEFAULT_CITIES.keys()))
-coords = DEFAULT_CITIES[city]
+# City selection
+city = st.selectbox("Choose a City", list(CITIES.keys()))
+coords = CITIES[city]
 
-with st.spinner("Fetching data..."):
-    aqi_data = get_aqi_data(coords["lat"], coords["lon"])
+# Fetch data
+with st.spinner("Fetching real-time AQI data..."):
+    data, error = get_aqi_data(coords["lat"], coords["lon"])
 
-aqi = aqi_data["main"]["aqi"]
+# Handle errors
+if error:
+    st.error(f"❌ {error}")
+    st.stop()
+
+# Extract AQI and pollutant data
+aqi = data["main"]["aqi"]
+components = data["components"]
 aqi_label, emoji = AQI_LABELS.get(aqi, ("Unknown", "❓"))
 
-st.metric(label="Air Quality Index (AQI)", value=f"{aqi} - {aqi_label} {emoji}")
+# ------------------- DISPLAY RESULTS -------------------
 
-# ----------- POLLUTANT CHART -------------
+st.metric(label="Air Quality Index", value=f"{aqi} - {aqi_label} {emoji}")
+
+# Pollutant bar chart
 st.subheader("🔬 Pollutant Concentrations (μg/m³)")
-components = aqi_data["components"]
 df = pd.DataFrame(list(components.items()), columns=["Pollutant", "Concentration"])
-
 fig = px.bar(df, x="Pollutant", y="Concentration", color="Pollutant",
-             title=f"Pollutants in the Air - {city}", height=400)
+             title=f"Pollutant Levels in {city}", height=400)
 st.plotly_chart(fig, use_container_width=True)
 
-# ----------- HEALTH ADVICE -------------
+# Health advisory
 st.subheader("📋 Health Advisory")
-
 if aqi == 1:
-    st.success("Air quality is good. Enjoy your outdoor activities!")
+    st.success("Air quality is good. It's safe to go outside.")
 elif aqi == 2:
-    st.info("Air quality is fair. Sensitive individuals should avoid heavy exertion.")
+    st.info("Air quality is fair. Sensitive individuals should be aware.")
 elif aqi == 3:
-    st.warning("Air quality is moderate. Consider reducing outdoor exposure.")
+    st.warning("Moderate air quality. Consider reducing prolonged outdoor activity.")
 elif aqi == 4:
-    st.error("Air quality is poor. Avoid prolonged outdoor activities.")
+    st.error("Poor air quality. Limit outdoor exposure and wear a mask.")
 elif aqi == 5:
-    st.error("Air quality is very poor. Stay indoors and consider using an air purifier.")
+    st.error("Very poor air quality. Stay indoors and use air purifiers if possible.")
 else:
     st.info("No advisory available.")
 
-# ----------- DEBUG (Optional) -------------
-# st.write("Full API Response:", aqi_data)
+# Optional: Show raw data for debugging
+with st.expander("🔍 Show Raw API Response (for debugging)"):
+    st.json(data)
+
 
